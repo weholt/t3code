@@ -12,7 +12,6 @@ export const OPEN_ON_HOST_LABELS: Partial<Record<string, string>> = {
   github: "Open on GitHub",
   gitlab: "Open on GitLab",
   bitbucket: "Open on Bitbucket",
-  forgejo: "Open on Forgejo",
   "azure-devops": "Open on Azure DevOps",
 };
 
@@ -35,7 +34,7 @@ export function pullRequestLinkContextMenuItems(
  * platform's own edit menu opens over a control that has nothing to cut, paste or select.
  *
  * The host is named by the caller rather than guessed here: the same number belongs to GitHub,
- * GitLab, Bitbucket, Forgejo or Azure DevOps depending on where it was read, and the `url` the contract
+ * GitLab, Bitbucket or Azure DevOps depending on where it was read, and the `url` the contract
  * carries is already whichever of them it came from.
  */
 export async function showPullRequestLinkContextMenu({

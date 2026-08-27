@@ -14,7 +14,6 @@ describe("pull request link context menu", () => {
     expect(openOnHostLabel("github")).toBe("Open on GitHub");
     expect(openOnHostLabel("gitlab")).toBe("Open on GitLab");
     expect(openOnHostLabel("bitbucket")).toBe("Open on Bitbucket");
-    expect(openOnHostLabel("forgejo")).toBe("Open on Forgejo");
     expect(openOnHostLabel("azure-devops")).toBe("Open on Azure DevOps");
     expect(openOnHostLabel("something-else")).toBe("Open on host");
   });

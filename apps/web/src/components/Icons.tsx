@@ -192,16 +192,6 @@ export const BitbucketIcon: Icon = (props) => {
   );
 };
 
-/** Forgejo's mark: a branch forking off a trunk, drawn in the current text colour. */
-export const ForgejoIcon: Icon = (props) => (
-  <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-    <circle cx="6" cy="19" r="2.5" />
-    <circle cx="17" cy="5" r="2.5" />
-    <circle cx="17" cy="12" r="2.5" />
-    <path d="M6 16.5V11a4 4 0 0 1 4-4h4.5M6 16.5V15a3 3 0 0 1 3-3h5.5" strokeLinecap="round" />
-  </svg>
-);
-
 export const CursorIcon: Icon = ({ className, ...props }) => (
   <svg
     {...props}

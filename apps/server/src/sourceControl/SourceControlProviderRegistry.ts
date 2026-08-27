@@ -13,8 +13,6 @@ import { detectSourceControlProviderFromRemoteUrl } from "@t3tools/shared/source
 
 import * as AzureDevOpsSourceControlProvider from "./AzureDevOpsSourceControlProvider.ts";
 import * as BitbucketSourceControlProvider from "./BitbucketSourceControlProvider.ts";
-import * as ForgejoApi from "./ForgejoApi.ts";
-import * as ForgejoSourceControlProvider from "./ForgejoSourceControlProvider.ts";
 import * as GitHubSourceControlProvider from "./GitHubSourceControlProvider.ts";
 import * as GitLabSourceControlProvider from "./GitLabSourceControlProvider.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
@@ -131,11 +129,10 @@ function selectProviderContext(
     readonly name: string;
     readonly url: string;
   }>,
-  options: { readonly forgejoHost: string },
 ): SourceControlProvider.SourceControlProviderContext | null {
   const candidates: Array<SourceControlProvider.SourceControlProviderContext> = [];
   for (const remote of remotes) {
-    const provider = detectSourceControlProviderFromRemoteUrl(remote.url, options);
+    const provider = detectSourceControlProviderFromRemoteUrl(remote.url);
     if (provider) {
       candidates.push({
         provider,
@@ -200,7 +197,6 @@ function bindProviderContext(
 export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWithProviders")(
   function* (registrations: ReadonlyArray<SourceControlProviderRegistration>) {
     const config = yield* ServerConfig;
-    const forgejoHost = yield* ForgejoApi.ForgejoHostConfig;
     const process = yield* VcsProcess.VcsProcess;
     const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
     const providers = new Map<
@@ -238,7 +234,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
               }),
           ),
         );
-        const context = selectProviderContext(remotes.remotes, { forgejoHost });
+        const context = selectProviderContext(remotes.remotes);
 
         return yield* refineUnknownRemoteProvider({
           specs: discoverySpecs,
@@ -301,8 +297,6 @@ export const make = Effect.gen(function* () {
   const gitlab = yield* GitLabSourceControlProvider.make;
   const bitbucket = yield* BitbucketSourceControlProvider.make;
   const bitbucketDiscovery = yield* BitbucketSourceControlProvider.makeDiscovery;
-  const forgejo = yield* ForgejoSourceControlProvider.make;
-  const forgejoDiscovery = yield* ForgejoSourceControlProvider.makeDiscovery;
   const azureDevOps = yield* AzureDevOpsSourceControlProvider.make;
   return yield* makeWithProviders([
     {
@@ -324,11 +318,6 @@ export const make = Effect.gen(function* () {
       kind: "bitbucket",
       provider: bitbucket,
       discovery: bitbucketDiscovery,
-    },
-    {
-      kind: "forgejo",
-      provider: forgejo,
-      discovery: forgejoDiscovery,
     },
   ]);
 });

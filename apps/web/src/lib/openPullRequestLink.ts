@@ -68,9 +68,9 @@ export interface ChangeRequestLink {
 }
 
 /** The host itself, one of its subdomains, or an install named after the provider. */
-function isHostOf(hostname: string, apex: string, ...labels: ReadonlyArray<string>): boolean {
+function isHostOf(hostname: string, apex: string, label?: string): boolean {
   if (hostname === apex || hostname.endsWith(`.${apex}`)) return true;
-  return labels.some((label) => hostname.startsWith(`${label}.`));
+  return label !== undefined && hostname.startsWith(`${label}.`);
 }
 
 /**
@@ -112,11 +112,6 @@ export function parseChangeRequestUrl(targetUrl: string): ChangeRequestLink | nu
   // Bitbucket Cloud: /{workspace}/{repo}/pull-requests/{n}
   if (isHostOf(host, "bitbucket.org", "bitbucket")) {
     const match = /^\/([^/]+\/[^/]+)\/pull-requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
-    return claim(host, match);
-  }
-  // Forgejo and Gitea, Codeberg included: /{owner}/{repo}/pulls/{n}
-  if (isHostOf(host, "codeberg.org", "forgejo", "gitea")) {
-    const match = /^\/([^/]+\/[^/]+)\/pulls\/(\d+)(?:\/|$)/u.exec(url.pathname);
     return claim(host, match);
   }
   // Azure DevOps, both the current host and the per-organisation one it replaced. `_git` is part

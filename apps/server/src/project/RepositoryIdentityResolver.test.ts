@@ -1,6 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import * as ConfigProvider from "effect/ConfigProvider";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -150,37 +149,6 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       expect(identity?.owner).toBe("t3tools");
       expect(identity?.name).toBe("t3code");
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
-  );
-
-  it.effect("detects the configured Forgejo host as a forgejo provider", () =>
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const cwd = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-repository-identity-forgejo-host-test-",
-      });
-
-      yield* git(cwd, ["init"]);
-      yield* git(cwd, ["remote", "add", "origin", "https://git.corp.example/o/r.git"]);
-
-      const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
-      const identity = yield* resolver.resolve(cwd);
-
-      expect(identity).not.toBeNull();
-      expect(identity?.canonicalKey).toBe("git.corp.example/o/r");
-      expect(identity?.provider).toBe("forgejo");
-      expect(identity?.owner).toBe("o");
-      expect(identity?.name).toBe("r");
-    }).pipe(
-      Effect.provide(
-        RepositoryIdentityResolver.layer.pipe(
-          Layer.provide(
-            ConfigProvider.layer(
-              ConfigProvider.fromEnv({ env: { T3CODE_FORGEJO_HOST: "git.corp.example" } }),
-            ),
-          ),
-        ),
-      ),
-    ),
   );
 
   it.effect(

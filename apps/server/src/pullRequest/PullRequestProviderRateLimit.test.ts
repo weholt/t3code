@@ -2,13 +2,11 @@ import { assert, it } from "@effect/vitest";
 
 import * as AzureDevOpsCli from "../sourceControl/AzureDevOpsCli.ts";
 import * as BitbucketApi from "../sourceControl/BitbucketApi.ts";
-import * as ForgejoApi from "../sourceControl/ForgejoApi.ts";
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import * as SourceControlRateLimit from "../sourceControl/SourceControlRateLimit.ts";
 import * as GitLabCli from "../sourceControl/GitLabCli.ts";
 import { azureDevOpsProviderFailure } from "./AzureDevOpsPullRequestProvider.ts";
 import { bitbucketProviderFailure } from "./BitbucketPullRequestProvider.ts";
-import { forgejoProviderFailure } from "./ForgejoPullRequestProvider.ts";
 import { gitHubProviderFailure } from "./GitHubPullRequestProvider.ts";
 import { gitLabProviderFailure } from "./GitLabPullRequestProvider.ts";
 
@@ -47,17 +45,6 @@ it("classifies rate limits from every pull-request provider", () => {
   assert.deepStrictEqual(
     bitbucketProviderFailure(
       new BitbucketApi.BitbucketResponseError({
-        operation: "request",
-        status: 429,
-        responseBodyLength: 0,
-        retryAt: 120_000,
-      }),
-    ),
-    { reason: "rate-limited", retryAt: 120_000 },
-  );
-  assert.deepStrictEqual(
-    forgejoProviderFailure(
-      new ForgejoApi.ForgejoResponseError({
         operation: "request",
         status: 429,
         responseBodyLength: 0,

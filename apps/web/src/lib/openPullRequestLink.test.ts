@@ -142,25 +142,6 @@ describe("parseChangeRequestUrl", () => {
     });
   });
 
-  it("reads a Forgejo pull request on Codeberg and on a self-hosted Forgejo or Gitea", () => {
-    expect(parseChangeRequestUrl("https://codeberg.org/owner/repo/pulls/42")).toEqual({
-      host: "codeberg.org",
-      repository: "owner/repo",
-      number: 42,
-    });
-    expect(parseChangeRequestUrl("https://forgejo.acme.test/owner/repo/pulls/7")).toEqual({
-      host: "forgejo.acme.test",
-      repository: "owner/repo",
-      number: 7,
-    });
-    expect(parseChangeRequestUrl("https://gitea.acme.test/owner/repo/pulls/7")).toEqual({
-      host: "gitea.acme.test",
-      repository: "owner/repo",
-      number: 7,
-    });
-    expect(parseChangeRequestUrl("https://codeberg.org/owner/repo/issues/42")).toBeNull();
-  });
-
   it("reads both Azure DevOps URL forms, keeping `_git` in the repository path", () => {
     expect(
       parseChangeRequestUrl("https://dev.azure.com/acme/platform/_git/t3code/pullrequest/17"),
@@ -190,11 +171,6 @@ describe("parseChangeRequestUrl", () => {
     expect(
       parseChangeRequestUrl("https://bitbucket.org/team/repo/pull-requests/5/commits"),
     ).toEqual({ host: "bitbucket.org", repository: "team/repo", number: 5 });
-    expect(parseChangeRequestUrl("https://codeberg.org/owner/repo/pulls/42/files")).toEqual({
-      host: "codeberg.org",
-      repository: "owner/repo",
-      number: 42,
-    });
     expect(parseChangeRequestUrl("https://github.com/t3tools/t3code/pull/123/")).toEqual({
       host: "github.com",
       repository: "t3tools/t3code",
