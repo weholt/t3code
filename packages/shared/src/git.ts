@@ -8,7 +8,10 @@ import type {
 } from "@t3tools/contracts";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
-import { detectSourceControlProviderFromRemoteUrl } from "./sourceControl.ts";
+import {
+  detectSourceControlProviderFromRemoteUrl,
+  type DetectSourceControlProviderOptions,
+} from "./sourceControl.ts";
 
 export const WORKTREE_BRANCH_PREFIX = "t3code";
 // Canonical form is `t3code/<8 hex>`. Older mobile builds generated `t3code/<uuid>`
@@ -211,8 +214,9 @@ export function dedupeRemoteBranchesWithLocalMatches(
 
 export function detectSourceControlProviderFromGitRemoteUrl(
   remoteUrl: string,
+  options?: DetectSourceControlProviderOptions,
 ): SourceControlProviderInfo | null {
-  return detectSourceControlProviderFromRemoteUrl(remoteUrl);
+  return detectSourceControlProviderFromRemoteUrl(remoteUrl, options);
 }
 
 const EMPTY_GIT_STATUS_REMOTE: VcsStatusRemoteResult = {
