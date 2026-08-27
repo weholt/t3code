@@ -11,6 +11,7 @@ import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as AzureDevOpsCli from "./AzureDevOpsCli.ts";
 import * as BitbucketApi from "./BitbucketApi.ts";
+import * as ForgejoApi from "./ForgejoApi.ts";
 import * as GitHubCli from "./GitHubCli.ts";
 import * as GitLabCli from "./GitLabCli.ts";
 import * as SourceControlDiscovery from "./SourceControlDiscovery.ts";
@@ -18,6 +19,7 @@ import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.
 
 const sourceControlProviderRegistryTestLayer = (input: {
   readonly bitbucket: Partial<BitbucketApi.BitbucketApi["Service"]>;
+  readonly forgejo: Partial<ForgejoApi.ForgejoApi["Service"]>;
   readonly process: Partial<VcsProcess.VcsProcess["Service"]>;
 }) =>
   SourceControlProviderRegistry.layer.pipe(
@@ -28,6 +30,7 @@ const sourceControlProviderRegistryTestLayer = (input: {
         }).pipe(Layer.provide(NodeServices.layer)),
         Layer.mock(AzureDevOpsCli.AzureDevOpsCli)({}),
         Layer.mock(BitbucketApi.BitbucketApi)(input.bitbucket),
+        Layer.mock(ForgejoApi.ForgejoApi)(input.forgejo),
         Layer.mock(GitHubCli.GitHubCli)({}),
         Layer.mock(GitLabCli.GitLabCli)({}),
         Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({}),
@@ -109,6 +112,14 @@ it.effect("reports implemented tools separately from locally available executabl
             ),
           }),
         },
+        forgejo: {
+          probeAuth: Effect.succeed({
+            status: "unauthenticated",
+            account: Option.none(),
+            host: Option.some("codeberg.org"),
+            detail: Option.some("Set T3CODE_FORGEJO_TOKEN."),
+          }),
+        },
       }),
     ),
     Layer.provideMerge(NodeServices.layer),
@@ -157,6 +168,12 @@ it.effect("reports implemented tools separately from locally available executabl
         },
         {
           kind: "bitbucket",
+          status: "available",
+          auth: "unauthenticated",
+          account: Option.none(),
+        },
+        {
+          kind: "forgejo",
           status: "available",
           auth: "unauthenticated",
           account: Option.none(),
@@ -236,6 +253,14 @@ Logged in to gitlab.com as gitlab-user
             detail: Option.none(),
           }),
         },
+        forgejo: {
+          probeAuth: Effect.succeed({
+            status: "authenticated",
+            account: Option.some("forgejo-user"),
+            host: Option.some("codeberg.org"),
+            detail: Option.none(),
+          }),
+        },
       }),
     ),
     Layer.provideMerge(NodeServices.layer),
@@ -275,6 +300,12 @@ Logged in to gitlab.com as gitlab-user
           kind: "bitbucket",
           auth: "authenticated",
           account: Option.some("bitbucket-user"),
+          detail: Option.none(),
+        },
+        {
+          kind: "forgejo",
+          auth: "authenticated",
+          account: Option.some("forgejo-user"),
           detail: Option.none(),
         },
       ],
