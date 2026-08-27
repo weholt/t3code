@@ -28,6 +28,21 @@ describe("source control presentation", () => {
       shortLabel: "PR",
       singular: "pull request",
     });
+    expect(getChangeRequestTerminologyForKind("forgejo")).toEqual({
+      shortLabel: "PR",
+      singular: "pull request",
+    });
+  });
+
+  it("presents forgejo change requests as pull requests", () => {
+    const presentation = resolveChangeRequestPresentation({
+      kind: "forgejo",
+      name: "Codeberg",
+      baseUrl: "https://codeberg.org",
+    });
+    expect(presentation.icon).toBe("forgejo");
+    expect(presentation.providerName).toBe("Forgejo");
+    expect(presentation.urlExample).toBe("https://codeberg.org/owner/repo/pulls/42");
   });
 
   it("falls back to generic change request copy for unknown providers", () => {
@@ -104,6 +119,51 @@ describe("detectSourceControlProviderFromRemoteUrl", () => {
       detectSourceControlProviderFromRemoteUrl("https://bitbucket.example.com/workspace/repo.git")
         ?.kind,
     ).toBe("bitbucket");
+    expect(
+      detectSourceControlProviderFromRemoteUrl("https://forgejo.example.com/owner/repo.git"),
+    ).toEqual({
+      kind: "forgejo",
+      name: "Forgejo Self-Hosted",
+      baseUrl: "https://forgejo.example.com",
+    });
+    expect(
+      detectSourceControlProviderFromRemoteUrl("https://gitea.example.com/owner/repo.git")?.kind,
+    ).toBe("forgejo");
+  });
+
+  it("detects codeberg.org as forgejo", () => {
+    expect(
+      detectSourceControlProviderFromRemoteUrl("git@codeberg.org:forgejo/forgejo.git"),
+    ).toEqual({
+      kind: "forgejo",
+      name: "Codeberg",
+      baseUrl: "https://codeberg.org",
+    });
+  });
+
+  it("detects the configured forgejo host, and only that host", () => {
+    expect(
+      detectSourceControlProviderFromRemoteUrl("https://git.corp.example/owner/repo.git", {
+        forgejoHost: "git.corp.example",
+      }),
+    ).toEqual({
+      kind: "forgejo",
+      name: "Forgejo Self-Hosted",
+      baseUrl: "https://git.corp.example",
+    });
+    expect(
+      detectSourceControlProviderFromRemoteUrl("git@Git.Corp.Example:owner/repo.git", {
+        forgejoHost: "https://git.corp.example/",
+      })?.kind,
+    ).toBe("forgejo");
+    expect(
+      detectSourceControlProviderFromRemoteUrl("https://git.corp.example/owner/repo.git")?.kind,
+    ).toBe("unknown");
+    expect(
+      detectSourceControlProviderFromRemoteUrl("https://github.com/owner/repo.git", {
+        forgejoHost: "github.com",
+      })?.kind,
+    ).toBe("github");
   });
 
   it("does not match provider names embedded in unrelated DNS labels", () => {
