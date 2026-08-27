@@ -12,6 +12,8 @@ import type {
   PullRequestCommit,
   PullRequestLabel,
   PullRequestMergeability,
+  PullRequestReaction,
+  PullRequestReactionContent,
   PullRequestReviewThread,
   PullRequestReviewerCandidate,
   PullRequestState,
@@ -83,6 +85,13 @@ const RawCommentSchema = Schema.Struct({
   user: Schema.optional(Schema.NullOr(RawUserSchema)),
   created_at: Schema.String,
   html_url: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+/** One row of `/issues/{index}/reactions` or `/issues/comments/{id}/reactions`. */
+const RawReactionSchema = Schema.Struct({
+  /** `+1`, `-1`, `laugh`, and the rest of GitHub's spellings. */
+  content: Schema.optional(Schema.NullOr(Schema.String)),
+  user: Schema.optional(Schema.NullOr(RawUserSchema)),
 });
 
 /** One row of `/pulls/{index}/reviews`. */
@@ -313,6 +322,7 @@ const decodeList = decodeJsonResult(RawListSchema);
 const decodePullRequestEntry = Schema.decodeUnknownExit(RawPullRequestSchema);
 const decodePullRequest = decodeJsonResult(RawPullRequestSchema);
 const decodeCommentEntry = Schema.decodeUnknownExit(RawCommentSchema);
+const decodeReactionEntry = Schema.decodeUnknownExit(RawReactionSchema);
 const decodeReviewEntry = Schema.decodeUnknownExit(RawReviewSchema);
 const decodeReviewCommentEntry = Schema.decodeUnknownExit(RawReviewCommentSchema);
 const decodeCommitEntry = Schema.decodeUnknownExit(RawCommitSchema);
@@ -435,6 +445,75 @@ export function decodeCommentsJson(
     });
   }
   return Result.succeed({ items, rawCount: decoded.success.length });
+}
+
+/** The contract's reaction names as Forgejo spells them, which is GitHub's spelling. */
+const FORGEJO_REACTION_BY_CONTENT: Readonly<Record<PullRequestReactionContent, string>> = {
+  "thumbs-up": "+1",
+  "thumbs-down": "-1",
+  laugh: "laugh",
+  hooray: "hooray",
+  confused: "confused",
+  heart: "heart",
+  rocket: "rocket",
+  eyes: "eyes",
+};
+
+const CONTENT_BY_FORGEJO_REACTION: Readonly<Record<string, PullRequestReactionContent>> =
+  Object.fromEntries(
+    Object.entries(FORGEJO_REACTION_BY_CONTENT).map(([content, name]) => [name, content]),
+  ) as Readonly<Record<string, PullRequestReactionContent>>;
+
+export function forgejoReactionName(content: PullRequestReactionContent): string {
+  return FORGEJO_REACTION_BY_CONTENT[content];
+}
+
+/**
+ * The reactions on one subject — the pull request or one comment — grouped the way a reaction
+ * pill is drawn. Forgejo names who reacted but never says whether that is the reader, so the
+ * viewer's login is matched here; with no viewer known, nothing reads back as the reader's own.
+ * The viewer's own login is left out of `actors` — the page names them "You" instead — but
+ * `count` still counts them along with everyone else.
+ */
+export function decodeReactionsJson(
+  raw: string,
+  viewer: string | null,
+): Result.Result<ReadonlyArray<PullRequestReaction>, DecodeFailure> {
+  const decoded = decodeList(raw);
+  if (!Result.isSuccess(decoded)) {
+    return Result.fail(decoded.failure);
+  }
+  const normalizedViewer = viewer?.toLowerCase() ?? null;
+  const groups = new Map<
+    PullRequestReactionContent,
+    { count: number; actors: string[]; viewer: boolean }
+  >();
+  for (const entry of decoded.success) {
+    const reaction = decodeReactionEntry(entry);
+    if (Exit.isFailure(reaction)) continue;
+    // A reaction outside the eight is left out rather than shown under a name the picker has no
+    // way to take back.
+    const content = CONTENT_BY_FORGEJO_REACTION[trimmed(reaction.value.content) ?? ""];
+    if (content === undefined) continue;
+    const login = trimmed(reaction.value.user?.login);
+    if (login === null) continue;
+    const group = groups.get(content) ?? { count: 0, actors: [], viewer: false };
+    group.count++;
+    if (normalizedViewer !== null && login.toLowerCase() === normalizedViewer) {
+      group.viewer = true;
+    } else {
+      group.actors.push(login);
+    }
+    groups.set(content, group);
+  }
+  return Result.succeed(
+    [...groups].map(([content, group]) => ({
+      content,
+      count: group.count,
+      actors: group.actors,
+      viewerHasReacted: group.viewer,
+    })),
+  );
 }
 
 export interface ForgejoReview {
@@ -569,7 +648,7 @@ export function buildReviewThreads(
   for (const comment of comments) {
     const anchor = reviewCommentAnchor(comment);
     if (anchor === null) continue;
-    const key = `${anchor.path} ${anchor.side} ${anchor.line ?? ""}`;
+    const key = `${anchor.path}\0${anchor.side}\0${anchor.line ?? ""}`;
     const group = groups.get(key);
     if (group === undefined) groups.set(key, { anchor, entries: [comment] });
     else group.entries.push(comment);

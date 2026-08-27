@@ -9,12 +9,14 @@ import {
   decodeDiffstatJson,
   decodePullRequestJson,
   decodePullRequestPageJson,
+  decodeReactionsJson,
   decodeRepositoryPermissionJson,
   decodeReviewCommentsJson,
   decodeReviewsJson,
   decodeSearchJson,
   decodeStatusesJson,
   decodeViewerJson,
+  forgejoReactionName,
 } from "./forgejoPullRequestJson.ts";
 
 /** Shaped after a real codeberg.org pull request, trimmed to the fields that are read. */
@@ -213,6 +215,72 @@ describe("decodeCommentsJson", () => {
       createdAt: "2026-05-15T01:58:38.000Z",
       url: "https://codeberg.org/acme/web/pulls/42#issuecomment-797230941",
     });
+  });
+});
+
+describe("decodeReactionsJson", () => {
+  it("groups reactions by content, marks the viewer's own and names everyone else", () => {
+    const reactions = expectSuccess(
+      decodeReactionsJson(
+        list([
+          { content: "+1", user: { login: "julius" }, created_at: "2026-05-15T01:58:38+00:00" },
+          { content: "+1", user: { login: "octocat" }, created_at: "2026-05-15T01:59:38+00:00" },
+          { content: "heart", user: { login: "julius" }, created_at: "2026-05-15T02:00:00+00:00" },
+        ]),
+        "octocat",
+      ),
+    );
+
+    // `octocat` is the viewer, so the group they are in reads back as reacted, but their own
+    // login is left out of `actors` — the page names them "You" instead — while `count` still
+    // counts them.
+    expect(reactions).toEqual([
+      { content: "thumbs-up", count: 2, actors: ["julius"], viewerHasReacted: true },
+      { content: "heart", count: 1, actors: ["julius"], viewerHasReacted: false },
+    ]);
+  });
+
+  it("matches the viewer's login case-insensitively, and marks nothing without a viewer", () => {
+    const rows = list([{ content: "-1", user: { login: "Octocat" } }]);
+
+    expect(expectSuccess(decodeReactionsJson(rows, "octocat"))).toEqual([
+      { content: "thumbs-down", count: 1, actors: [], viewerHasReacted: true },
+    ]);
+    // A token refused at `/user` names no viewer, so the same reaction is someone else's.
+    expect(expectSuccess(decodeReactionsJson(rows, null))).toEqual([
+      { content: "thumbs-down", count: 1, actors: ["Octocat"], viewerHasReacted: false },
+    ]);
+  });
+
+  it("drops a reaction outside the eight, one without a name, and a malformed row", () => {
+    const reactions = expectSuccess(
+      decodeReactionsJson(
+        list([
+          { content: "partyparrot", user: { login: "julius" } },
+          { content: "rocket", user: null },
+          "not a reaction",
+          { content: "rocket", user: { login: "julius" } },
+        ]),
+        null,
+      ),
+    );
+
+    expect(reactions).toEqual([
+      { content: "rocket", count: 1, actors: ["julius"], viewerHasReacted: false },
+    ]);
+  });
+
+  it("fails when Forgejo did not answer with a list", () => {
+    expect(Result.isFailure(decodeReactionsJson("{}", null))).toBe(true);
+  });
+
+  it("spells the contract's names the way Forgejo does, and reads them back the same way", () => {
+    expect(forgejoReactionName("thumbs-up")).toBe("+1");
+    expect(forgejoReactionName("thumbs-down")).toBe("-1");
+    expect(forgejoReactionName("hooray")).toBe("hooray");
+    expect(
+      expectSuccess(decodeReactionsJson(list([{ content: "+1", user: { login: "j" } }]), null)),
+    ).toMatchObject([{ content: "thumbs-up" }]);
   });
 });
 

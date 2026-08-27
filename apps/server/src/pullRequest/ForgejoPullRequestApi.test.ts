@@ -793,6 +793,136 @@ layer("ForgejoPullRequestApi.layer", (it) => {
     }),
   );
 
+  it.effect("reads the reactions on the pull request and on each comment, as the viewer", () =>
+    Effect.gen(function* () {
+      mockedRequest.mockImplementation((input) => {
+        if (input.url === "/user") {
+          return Effect.succeed(response(JSON.stringify({ login: "octocat" })));
+        }
+        if (input.url.startsWith("/repos/acme/web/issues/7/comments")) {
+          return Effect.succeed(
+            response(
+              JSON.stringify([
+                { id: 13, body: "ship it", user: octocat, created_at: "2026-06-16T08:04:32Z" },
+                { id: 14, body: "agreed", user: julius, created_at: "2026-06-16T08:05:32Z" },
+              ]),
+            ),
+          );
+        }
+        if (input.url.startsWith("/repos/acme/web/pulls/7/reviews/")) {
+          return Effect.succeed(
+            response(
+              JSON.stringify([
+                {
+                  id: 10,
+                  body: "rename this",
+                  path: "src/a.ts",
+                  position: 12,
+                  original_position: 0,
+                  user: octocat,
+                  created_at: "2026-06-16T05:04:32+00:00",
+                },
+              ]),
+            ),
+          );
+        }
+        if (input.url.startsWith("/repos/acme/web/pulls/7/reviews")) {
+          return Effect.succeed(
+            response(
+              JSON.stringify([
+                {
+                  id: 100,
+                  state: "APPROVED",
+                  body: "",
+                  user: julius,
+                  submitted_at: "2026-06-16T05:04:33+00:00",
+                  comments_count: 1,
+                },
+              ]),
+            ),
+          );
+        }
+        if (input.url.startsWith("/repos/acme/web/issues/7/reactions")) {
+          return Effect.succeed(
+            response(
+              JSON.stringify([
+                { content: "+1", user: octocat },
+                { content: "+1", user: julius },
+              ]),
+            ),
+          );
+        }
+        if (input.url.startsWith("/repos/acme/web/issues/comments/10/reactions")) {
+          return Effect.succeed(response(JSON.stringify([{ content: "heart", user: julius }])));
+        }
+        if (input.url.startsWith("/repos/acme/web/issues/comments/13/reactions")) {
+          // Forgejo refusing one read costs that comment its reactions, not the conversation.
+          return Effect.fail(
+            new ForgejoApi.ForgejoResponseError({
+              operation: "request",
+              status: 500,
+              responseBodyLength: 0,
+            }),
+          );
+        }
+        return Effect.succeed(response("[]"));
+      });
+      const api = yield* ForgejoPullRequestApi.ForgejoPullRequestApi;
+
+      const conversation = yield* api.listComments({ repository: "acme/web", number: 7 });
+
+      expect(conversation.reactions).toEqual([
+        { content: "thumbs-up", count: 2, actors: ["julius"], viewerHasReacted: true },
+      ]);
+      expect(conversation.comments.map((comment) => [comment.id, comment.reactions])).toEqual([
+        ["10", [{ content: "heart", count: 1, actors: ["julius"], viewerHasReacted: false }]],
+        // A review is not a comment, so Forgejo has nothing to read for it.
+        ["100", undefined],
+        ["13", []],
+        ["14", []],
+      ]);
+      expect(conversation.threads[0]?.comments.map((comment) => comment.reactions)).toEqual([
+        [{ content: "heart", count: 1, actors: ["julius"], viewerHasReacted: false }],
+      ]);
+      // One read for the viewer, one for the pull request, and one per remark and line comment.
+      const urls = mockedRequest.mock.calls.map((call) => call[0].url);
+      expect(urls.filter((url) => url === "/user")).toHaveLength(1);
+      expect(urls.filter((url) => url.includes("/reactions")).toSorted()).toEqual([
+        "/repos/acme/web/issues/7/reactions?limit=50&page=1",
+        "/repos/acme/web/issues/comments/10/reactions?limit=50&page=1",
+        "/repos/acme/web/issues/comments/13/reactions?limit=50&page=1",
+        "/repos/acme/web/issues/comments/14/reactions?limit=50&page=1",
+      ]);
+    }),
+  );
+
+  it.effect("shows every reaction as someone else's when the token cannot read the viewer", () =>
+    Effect.gen(function* () {
+      mockedRequest.mockImplementation((input) => {
+        if (input.url === "/user") {
+          return Effect.fail(
+            new ForgejoApi.ForgejoResponseError({
+              operation: "request",
+              status: 403,
+              responseBodyLength: 0,
+            }),
+          );
+        }
+        if (input.url.startsWith("/repos/acme/web/issues/7/reactions")) {
+          return Effect.succeed(response(JSON.stringify([{ content: "eyes", user: octocat }])));
+        }
+        return Effect.succeed(response("[]"));
+      });
+      const api = yield* ForgejoPullRequestApi.ForgejoPullRequestApi;
+
+      const conversation = yield* api.listComments({ repository: "acme/web", number: 7 });
+
+      expect(conversation.reactions).toEqual([
+        { content: "eyes", count: 1, actors: ["octocat"], viewerHasReacted: false },
+      ]);
+    }),
+  );
+
   it.effect("stops the comment walk at its bound and says the conversation was cut short", () =>
     Effect.gen(function* () {
       // A Forgejo that always fills a page: the walk has to end itself.

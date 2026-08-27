@@ -177,10 +177,16 @@ export const make = Effect.gen(function* () {
       return Effect.all(
         [
           // Review verdicts are already folded into the conversation with the remarks and the
-          // line comments, so nothing on the pull request itself is needed here.
-          api
-            .listComments(target)
-            .pipe(Effect.orElseSucceed(() => ({ comments: [], threads: [], truncated: true }))),
+          // line comments, and so are the reactions, so nothing on the pull request itself is
+          // needed here.
+          api.listComments(target).pipe(
+            Effect.orElseSucceed(() => ({
+              comments: [],
+              threads: [],
+              truncated: true,
+              reactions: [],
+            })),
+          ),
           api.listCommits(target).pipe(Effect.orElseSucceed(() => [])),
         ],
         { concurrency: 2 },
@@ -188,6 +194,7 @@ export const make = Effect.gen(function* () {
         Effect.mapError(fail("getChangeRequestActivity")),
         Effect.map(
           ([comments, commits]): ProviderChangeRequestActivity => ({
+            reactions: comments.reactions,
             comments: comments.comments,
             commentCount: comments.comments.length,
             commentsTruncated: comments.truncated,

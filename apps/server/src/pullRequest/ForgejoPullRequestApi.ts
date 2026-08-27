@@ -11,6 +11,7 @@ import type {
   PullRequestListState,
   PullRequestMergeMethod,
   PullRequestMergeability,
+  PullRequestReaction,
   PullRequestReactionContent,
   PullRequestReviewCommentDraft,
   PullRequestReviewPosition,
@@ -28,12 +29,14 @@ import {
   decodeDiffstatJson,
   decodePullRequestJson,
   decodePullRequestPageJson,
+  decodeReactionsJson,
   decodeRepositoryPermissionJson,
   decodeReviewCommentsJson,
   decodeReviewsJson,
   decodeSearchJson,
   decodeStatusesJson,
   decodeViewerJson,
+  forgejoReactionName,
   type ForgejoDiffStat,
   type ForgejoPullRequest,
   type ForgejoRawReviewComment,
@@ -143,6 +146,8 @@ const CONVERSATION_PAGE_SIZE = 50;
 const CONVERSATION_PAGES = 10;
 /** The same ceiling the gh and glab diff reads use. */
 const DIFF_MAX_BYTES = 8 * 1024 * 1024;
+/** Reaction reads in flight at once: one per comment, so the conversation's length is the count. */
+const REACTION_CONCURRENCY = 5;
 
 export interface ForgejoPullRequestBatch {
   readonly items: ReadonlyArray<ForgejoPullRequest>;
@@ -201,7 +206,8 @@ export class ForgejoPullRequestApi extends Context.Service<
 
     /**
      * The whole conversation: the plain remarks, every submitted review, and the line comments
-     * each review carries — the last assembled into threads by the line they sit on.
+     * each review carries — the last assembled into threads by the line they sit on. Each remark
+     * and line comment carries its reactions, and `reactions` is the pull request's own.
      */
     readonly listComments: (input: {
       readonly repository: string;
@@ -211,6 +217,7 @@ export class ForgejoPullRequestApi extends Context.Service<
         readonly comments: ReadonlyArray<PullRequestComment>;
         readonly threads: ReadonlyArray<PullRequestReviewThread>;
         readonly truncated: boolean;
+        readonly reactions: ReadonlyArray<PullRequestReaction>;
       },
       ForgejoPullRequestApiError
     >;
@@ -399,18 +406,6 @@ function forgejoReviewPosition(
       return position.side === "left"
         ? { old_position: position.oldLine }
         : { new_position: position.newLine };
-  }
-}
-
-/** The contract's reaction names as Forgejo spells them, which is GitHub's spelling. */
-function forgejoReaction(content: PullRequestReactionContent): string {
-  switch (content) {
-    case "thumbs-up":
-      return "+1";
-    case "thumbs-down":
-      return "-1";
-    default:
-      return content;
   }
 }
 
@@ -669,21 +664,99 @@ export const make = Effect.gen(function* () {
       })
       .pipe(Effect.asVoid);
 
-  return ForgejoPullRequestApi.of({
-    getViewer: () =>
-      forgejo.request({ method: "GET", url: "/user" }).pipe(
-        Effect.flatMap((response): Effect.Effect<string, ForgejoPullRequestApiError> => {
-          const decoded = decodeViewerJson(response.body);
-          if (!Result.isSuccess(decoded)) {
-            return Effect.fail(
-              new ForgejoPullRequestReadError({ operation: "getViewer", cause: decoded.failure }),
-            );
-          }
-          return decoded.success === null
-            ? Effect.fail(new ForgejoViewerUnavailableError())
-            : Effect.succeed(decoded.success);
-        }),
+  const getViewer = (): Effect.Effect<string, ForgejoPullRequestApiError> =>
+    forgejo.request({ method: "GET", url: "/user" }).pipe(
+      Effect.flatMap((response): Effect.Effect<string, ForgejoPullRequestApiError> => {
+        const decoded = decodeViewerJson(response.body);
+        if (!Result.isSuccess(decoded)) {
+          return Effect.fail(
+            new ForgejoPullRequestReadError({ operation: "getViewer", cause: decoded.failure }),
+          );
+        }
+        return decoded.success === null
+          ? Effect.fail(new ForgejoViewerUnavailableError())
+          : Effect.succeed(decoded.success);
+      }),
+    );
+
+  /** The reactions on one subject; a read that fails costs that subject its reactions, no more. */
+  const readReactions = (url: string, viewer: string | null) =>
+    readPage({
+      operation: "listReactions",
+      // Forgejo pages reactions like any list and clamps the limit at its own ceiling, so past
+      // fifty reactions on one subject the rest are not counted.
+      url: `${url}?${query([
+        ["limit", String(MAX_PAGE_SIZE)],
+        ["page", "1"],
+      ])}`,
+      decode: (body) => decodeReactionsJson(body, viewer),
+    }).pipe(Effect.orElseSucceed((): ReadonlyArray<PullRequestReaction> => []));
+
+  /**
+   * The reactions on the pull request and on each comment named — one request per comment, since
+   * Forgejo carries none of them on the comment itself. The viewer is read first so their own
+   * reactions read back as theirs; a token without `read:user` is refused at `/user`, and then
+   * every reaction is shown as someone else's rather than none being shown at all.
+   */
+  const listReactions = (path: string, number: number, commentIds: ReadonlyArray<string>) =>
+    getViewer().pipe(
+      Effect.orElseSucceed((): string | null => null),
+      Effect.flatMap((viewer) =>
+        Effect.all(
+          [
+            readReactions(`${path}/issues/${number}/reactions`, viewer),
+            Effect.forEach(
+              commentIds,
+              (id) =>
+                readReactions(
+                  `${path}/issues/comments/${encodeURIComponent(id)}/reactions`,
+                  viewer,
+                ).pipe(Effect.map((reactions) => [id, reactions] as const)),
+              { concurrency: REACTION_CONCURRENCY },
+            ),
+          ],
+          { concurrency: 2 },
+        ),
       ),
+      Effect.map(([reactions, byComment]) => ({
+        reactions,
+        reactionsByCommentId: new Map(byComment),
+      })),
+    );
+
+  /**
+   * The conversation with its reactions attached. Reviews are left as they are: a review's id is
+   * not a comment id, so Forgejo has nothing to read for it under `/issues/comments`.
+   */
+  const listComments = (path: string, number: number) =>
+    listConversation(path, number).pipe(
+      Effect.flatMap((conversation) => {
+        const commentIds = conversation.comments.flatMap((comment) =>
+          comment.kind === "review" ? [] : [comment.id],
+        );
+        return listReactions(path, number, commentIds).pipe(
+          Effect.map((reactions) => ({
+            ...conversation,
+            reactions: reactions.reactions,
+            comments: conversation.comments.map((comment) =>
+              comment.kind === "review"
+                ? comment
+                : { ...comment, reactions: reactions.reactionsByCommentId.get(comment.id) ?? [] },
+            ),
+            threads: conversation.threads.map((thread) => ({
+              ...thread,
+              comments: thread.comments.map((comment) => ({
+                ...comment,
+                reactions: reactions.reactionsByCommentId.get(comment.id) ?? [],
+              })),
+            })),
+          })),
+        );
+      }),
+    );
+
+  return ForgejoPullRequestApi.of({
+    getViewer,
 
     listPullRequests: (input) =>
       withRepository(input.repository, (path, segments) => {
@@ -803,7 +876,7 @@ export const make = Effect.gen(function* () {
       ),
 
     listComments: (input) =>
-      withRepository(input.repository, (path) => listConversation(path, input.number)),
+      withRepository(input.repository, (path) => listComments(path, input.number)),
 
     listCommits: (input) =>
       withRepository(input.repository, (path) =>
@@ -994,7 +1067,7 @@ export const make = Effect.gen(function* () {
               input.commentId === undefined
                 ? `${path}/issues/${input.number}/reactions`
                 : `${path}/issues/comments/${encodeURIComponent(input.commentId)}/reactions`,
-            body: JSON.stringify({ content: forgejoReaction(input.content) }),
+            body: JSON.stringify({ content: forgejoReactionName(input.content) }),
           })
           .pipe(Effect.asVoid),
       ),
