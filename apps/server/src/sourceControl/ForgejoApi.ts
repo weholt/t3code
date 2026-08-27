@@ -300,7 +300,7 @@ export class ForgejoApi extends Context.Service<
      * handed back undecoded for the caller to read as it sees fit.
      */
     readonly request: (input: {
-      readonly method: "GET" | "POST" | "PUT" | "DELETE";
+      readonly method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
       /**
        * A path below the API base, or a whole URL as a paged response reports its next page.
        * A whole URL is refused unless it belongs to the configured Forgejo.
@@ -739,7 +739,7 @@ export const make = Effect.gen(function* () {
    * be followed — but only back to the same Forgejo.
    */
   const send = (input: {
-    readonly method: "GET" | "POST" | "PUT" | "DELETE";
+    readonly method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
     readonly url: string;
     readonly body?: string;
     readonly redirects: number;
@@ -757,7 +757,9 @@ export const make = Effect.gen(function* () {
           ? HttpClientRequest.post(url)
           : input.method === "DELETE"
             ? HttpClientRequest.make("DELETE")(url)
-            : HttpClientRequest.put(url);
+            : input.method === "PATCH"
+              ? HttpClientRequest.patch(url)
+              : HttpClientRequest.put(url);
     // No `Accept: application/json`: the diff endpoints answer with a patch, not JSON.
     const withBody =
       input.body === undefined
