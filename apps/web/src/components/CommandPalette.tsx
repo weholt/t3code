@@ -135,7 +135,7 @@ import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sideb
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { CommandPaletteContent } from "./CommandPaletteContent";
 import { CommandPaletteResults } from "./CommandPaletteResults";
-import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "./Icons";
+import { AzureDevOpsIcon, BitbucketIcon, ForgejoIcon, GitHubIcon, GitLabIcon } from "./Icons";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
@@ -204,7 +204,7 @@ interface AddProjectEnvironmentOption {
 
 type AddProjectRemoteProviderKind = Extract<
   SourceControlProviderKind,
-  "github" | "gitlab" | "bitbucket" | "azure-devops"
+  "github" | "gitlab" | "bitbucket" | "forgejo" | "azure-devops"
 >;
 type AddProjectRemoteSource = AddProjectRemoteProviderKind | "url";
 
@@ -228,12 +228,14 @@ const REMOTE_PROJECT_SOURCES: ReadonlyArray<AddProjectRemoteSource> = [
   "github",
   "gitlab",
   "bitbucket",
+  "forgejo",
   "azure-devops",
 ];
 const REMOTE_PROJECT_PROVIDER_SOURCES: ReadonlyArray<AddProjectRemoteProviderKind> = [
   "github",
   "gitlab",
   "bitbucket",
+  "forgejo",
   "azure-devops",
 ];
 
@@ -245,6 +247,8 @@ function remoteProjectSourceLabel(source: AddProjectRemoteSource): string {
       return "GitLab";
     case "bitbucket":
       return "Bitbucket";
+    case "forgejo":
+      return "Forgejo";
     case "azure-devops":
       return "Azure DevOps";
     case "url":
@@ -260,6 +264,8 @@ function remoteProjectSourcePathHint(source: AddProjectRemoteSource): string {
       return "group/project";
     case "bitbucket":
       return "workspace/repository";
+    case "forgejo":
+      return "owner/repo";
     case "azure-devops":
       return "project/repository";
     case "url":
@@ -281,6 +287,8 @@ function remoteProjectSourceIcon(source: AddProjectRemoteSource, className: stri
       return <GitLabIcon className={className} />;
     case "bitbucket":
       return <BitbucketIcon className={className} />;
+    case "forgejo":
+      return <ForgejoIcon className={className} />;
     case "azure-devops":
       return <AzureDevOpsIcon className={className} />;
     case "url":
@@ -331,6 +339,7 @@ function buildAddProjectRemoteSourceReadiness(
     github: unavailable,
     gitlab: unavailable,
     bitbucket: unavailable,
+    forgejo: unavailable,
     "azure-devops": unavailable,
   };
 
@@ -1567,6 +1576,8 @@ function OpenCommandPaletteDialog(props: {
       "github",
       "gitlab",
       "bitbucket",
+      "forgejo",
+      "codeberg",
       "azure",
       "devops",
       "url",
