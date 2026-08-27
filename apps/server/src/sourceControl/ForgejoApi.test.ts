@@ -60,6 +60,8 @@ function makeLayer(input: {
   readonly git?: Partial<GitVcsDriver.GitVcsDriver["Service"]>;
   /** The configured instance; a scheme or trailing slash is tolerated. */
   readonly host?: string;
+  /** `T3CODE_FORGEJO_USER`, for a token that cannot read `/user`. */
+  readonly user?: string;
 }) {
   const execute = vi.fn((request: HttpClientRequest.HttpClientRequest) =>
     input.requestFailure
@@ -149,6 +151,7 @@ function makeLayer(input: {
           env: {
             T3CODE_FORGEJO_HOST: input.host ?? "git.test.local",
             T3CODE_FORGEJO_TOKEN: "abc",
+            ...(input.user === undefined ? {} : { T3CODE_FORGEJO_USER: input.user }),
           },
         }),
       ),
@@ -548,6 +551,45 @@ it.effect("falls back to the configured token when the /user probe fails", () =>
       host: Option.some("git.test.local"),
       detail: Option.some("Forgejo token is configured."),
     });
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("names the configured user when the token cannot read /user", () => {
+  const { layer } = makeLayer({
+    response: () => new Response("forbidden", { status: 403 }),
+    user: "forgejo-user",
+  });
+
+  return Effect.gen(function* () {
+    const forgejo = yield* ForgejoApi.ForgejoApi;
+    const auth = yield* forgejo.probeAuth;
+
+    assert.deepStrictEqual(auth, {
+      status: "unknown",
+      account: Option.some("forgejo-user"),
+      host: Option.some("git.test.local"),
+      detail: Option.some("Forgejo token is configured."),
+    });
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("points at T3CODE_FORGEJO_USER when /user is refused and no user is configured", () => {
+  const { layer } = makeLayer({
+    response: () => new Response("forbidden", { status: 403 }),
+  });
+
+  return Effect.gen(function* () {
+    const forgejo = yield* ForgejoApi.ForgejoApi;
+    const auth = yield* forgejo.probeAuth;
+
+    assert.strictEqual(auth.status, "unknown");
+    assert.deepStrictEqual(auth.account, Option.none());
+    assert.deepStrictEqual(
+      auth.detail,
+      Option.some(
+        "The token cannot read the user profile. Grant it read access to user, or set T3CODE_FORGEJO_USER.",
+      ),
+    );
   }).pipe(Effect.provide(layer));
 });
 

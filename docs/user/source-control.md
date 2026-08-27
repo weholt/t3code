@@ -130,7 +130,12 @@ Codeberg is the default host; self-hosted Forgejo and Gitea instances work the s
    ```bash
    export T3CODE_FORGEJO_HOST="git.example.com"
    ```
-4. Restart T3 Code and verify the connection in **Source Control settings**.
+4. If your token cannot be granted read access to **user** (some instances do not offer it), tell
+   T3 Code which account the token belongs to:
+   ```bash
+   export T3CODE_FORGEJO_USER="your-login"
+   ```
+5. Restart T3 Code and verify the connection in **Source Control settings**.
 
 Pull requests on Forgejo support listing, diffs, merging (merge, squash, or rebase),
 closing and reopening, comments, reviews with inline comments (comment, approve, or request
@@ -165,7 +170,7 @@ Resolving review threads and toggling draft status are not available on Forgejo.
 - **Provider shows "Not authenticated"** – Run the login command for that provider (e.g., `gh auth login`) in a terminal on the server, then rescan in Settings
 - **GitHub says it could not verify sign-in status** – T3 Code needs GitHub CLI 2.81.0 or newer to check sign-in status. Update `gh` (e.g., `brew upgrade gh`), then rescan
 - **Bitbucket not connecting** – Double-check your environment variables are set in the correct shell profile and the server was restarted
-- **Forgejo not connecting** – Check that `T3CODE_FORGEJO_TOKEN` is set in the correct shell profile, that `T3CODE_FORGEJO_HOST` matches your instance if self-hosted (no `https://` prefix), and that the server was restarted
+- **Forgejo not connecting** – Check that `T3CODE_FORGEJO_TOKEN` is set in the correct shell profile, that `T3CODE_FORGEJO_HOST` matches your instance if self-hosted (no `https://` prefix), and that the server was restarted. If Source Control settings or the pull request view say the token cannot read the user profile, set `T3CODE_FORGEJO_USER` to your login
 - **Forgejo reports a certificate error** – A self-hosted instance with a self-signed or private-CA certificate needs its CA trusted by the server: set `NODE_EXTRA_CA_CERTS=/path/to/ca.pem` in the same shell profile and restart
 - **Can't push to a remote** – Verify your Git remote URL matches the provider you've authenticated with (SSH vs HTTPS remotes may need different credentials)
 

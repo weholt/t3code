@@ -48,6 +48,12 @@ export const ForgejoHostConfig = Config.string("T3CODE_FORGEJO_HOST").pipe(
 const ForgejoApiEnvConfig = Config.all({
   host: ForgejoHostConfig,
   token: Config.string("T3CODE_FORGEJO_TOKEN").pipe(Config.option),
+  /**
+   * The login the token belongs to, for a token that cannot read `/user`. Forgejo tokens are
+   * often minted without `read:user`, every repository endpoint still works, and no other
+   * endpoint reveals the token's owner.
+   */
+  user: Config.string("T3CODE_FORGEJO_USER").pipe(Config.option),
 });
 
 const ForgejoApiOperation = Schema.Literals([
@@ -294,6 +300,9 @@ export class ForgejoApi extends Context.Service<
   {
     readonly probeAuth: Effect.Effect<SourceControlProviderAuth, never>;
 
+    /** `T3CODE_FORGEJO_USER`: who the token belongs to, when `/user` cannot say. */
+    readonly configuredUser: Option.Option<string>;
+
     /**
      * One authenticated request, returning the body verbatim. Forgejo answers most endpoints
      * with JSON and a few — a pull request diff, for one — with plain text, so the body is
@@ -480,15 +489,29 @@ function repositoryOwnerName(repositoryName: string): string {
   return repositoryName.split("/")[0]?.trim() || "forgejo";
 }
 
+/**
+ * What can be said about the credentials once `/user` has refused to say. A 403 is a token
+ * without `read:user`, which every repository endpoint still accepts, so it is not reported as
+ * a bad token — only as one whose owner must be named another way.
+ */
 function authFromConfig(
   config: Config.Success<typeof ForgejoApiEnvConfig>,
+  failure: ForgejoApiError,
 ): SourceControlProviderAuth {
   if (Option.isSome(config.token)) {
+    const scopeRefused =
+      failure._tag === "ForgejoResponseError" &&
+      failure.status === 403 &&
+      Option.isNone(config.user);
     return {
       status: "unknown",
-      account: Option.none(),
+      account: config.user,
       host: Option.some(config.host),
-      detail: Option.some("Forgejo token is configured."),
+      detail: Option.some(
+        scopeRefused
+          ? "The token cannot read the user profile. Grant it read access to user, or set T3CODE_FORGEJO_USER."
+          : "Forgejo token is configured.",
+      ),
     };
   }
 
@@ -823,6 +846,7 @@ export const make = Effect.gen(function* () {
 
   return ForgejoApi.of({
     request,
+    configuredUser: config.user,
     probeAuth: getViewer("probeAuth").pipe(
       Effect.map((user) => ({
         status: "authenticated" as const,
@@ -830,7 +854,7 @@ export const make = Effect.gen(function* () {
         host: Option.some(config.host),
         detail: Option.none<string>(),
       })),
-      Effect.orElseSucceed(() => authFromConfig(config)),
+      Effect.catch((failure) => Effect.succeed(authFromConfig(config, failure))),
     ),
     // Forgejo cannot filter a listing by head branch, so the page is fetched sorted by recent
     // activity and narrowed here.

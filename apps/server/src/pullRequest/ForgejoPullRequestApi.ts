@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import type {
@@ -77,6 +78,23 @@ export class ForgejoViewerUnavailableError extends Schema.TaggedErrorClass<Forge
   }
 }
 
+/**
+ * The token works everywhere but `/user`: Forgejo refused the read for want of `read:user`, and
+ * no other endpoint names the token's owner, so the login has to be configured instead.
+ */
+export class ForgejoViewerScopeError extends Schema.TaggedErrorClass<ForgejoViewerScopeError>()(
+  "ForgejoViewerScopeError",
+  {},
+) {
+  get detail(): string {
+    return "The Forgejo token cannot read the user profile. Grant it read access to user, or set T3CODE_FORGEJO_USER to your login.";
+  }
+
+  override get message(): string {
+    return `Forgejo failed in getViewer: ${this.detail}`;
+  }
+}
+
 /** A repository that is not `owner/repo`, which is the only form Forgejo addresses. */
 export class ForgejoRepositoryUnsupportedError extends Schema.TaggedErrorClass<ForgejoRepositoryUnsupportedError>()(
   "ForgejoRepositoryUnsupportedError",
@@ -127,6 +145,7 @@ export type ForgejoPullRequestApiError =
   | ForgejoApi.ForgejoApiError
   | ForgejoPullRequestReadError
   | ForgejoViewerUnavailableError
+  | ForgejoViewerScopeError
   | ForgejoRepositoryUnsupportedError
   | ForgejoDiffCommitError
   | ForgejoActionUnsupportedError;
@@ -664,6 +683,10 @@ export const make = Effect.gen(function* () {
       })
       .pipe(Effect.asVoid);
 
+  /**
+   * `/user` first; a 403 there — and only a 403, since a 401 is a refused token everywhere — is
+   * a token without `read:user`, and the configured login stands in for what it cannot read.
+   */
   const getViewer = (): Effect.Effect<string, ForgejoPullRequestApiError> =>
     forgejo.request({ method: "GET", url: "/user" }).pipe(
       Effect.flatMap((response): Effect.Effect<string, ForgejoPullRequestApiError> => {
@@ -677,6 +700,13 @@ export const make = Effect.gen(function* () {
           ? Effect.fail(new ForgejoViewerUnavailableError())
           : Effect.succeed(decoded.success);
       }),
+      Effect.catchIf(
+        (error) => error._tag === "ForgejoResponseError" && error.status === 403,
+        () =>
+          Option.isSome(forgejo.configuredUser)
+            ? Effect.succeed(forgejo.configuredUser.value)
+            : Effect.fail(new ForgejoViewerScopeError()),
+      ),
     );
 
   /** The reactions on one subject; a read that fails costs that subject its reactions, no more. */
@@ -695,8 +725,8 @@ export const make = Effect.gen(function* () {
   /**
    * The reactions on the pull request and on each comment named — one request per comment, since
    * Forgejo carries none of them on the comment itself. The viewer is read first so their own
-   * reactions read back as theirs; a token without `read:user` is refused at `/user`, and then
-   * every reaction is shown as someone else's rather than none being shown at all.
+   * reactions read back as theirs; a token without `read:user` and no configured login is refused
+   * at `/user`, and then every reaction is shown as someone else's rather than none being shown at all.
    */
   const listReactions = (path: string, number: number, commentIds: ReadonlyArray<string>) =>
     getViewer().pipe(

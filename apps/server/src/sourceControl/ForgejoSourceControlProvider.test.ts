@@ -8,7 +8,9 @@ import * as ForgejoSourceControlProvider from "./ForgejoSourceControlProvider.ts
 
 function makeProvider(forgejo: Partial<ForgejoApi.ForgejoApi["Service"]>) {
   return ForgejoSourceControlProvider.make.pipe(
-    Effect.provide(Layer.mock(ForgejoApi.ForgejoApi)(forgejo)),
+    Effect.provide(
+      Layer.mock(ForgejoApi.ForgejoApi)({ configuredUser: Option.none(), ...forgejo }),
+    ),
   );
 }
 

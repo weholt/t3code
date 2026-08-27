@@ -30,7 +30,7 @@ const sourceControlProviderRegistryTestLayer = (input: {
         }).pipe(Layer.provide(NodeServices.layer)),
         Layer.mock(AzureDevOpsCli.AzureDevOpsCli)({}),
         Layer.mock(BitbucketApi.BitbucketApi)(input.bitbucket),
-        Layer.mock(ForgejoApi.ForgejoApi)(input.forgejo),
+        Layer.mock(ForgejoApi.ForgejoApi)({ configuredUser: Option.none(), ...input.forgejo }),
         Layer.mock(GitHubCli.GitHubCli)({}),
         Layer.mock(GitLabCli.GitLabCli)({}),
         Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({}),

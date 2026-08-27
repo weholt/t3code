@@ -1,21 +1,37 @@
 import { afterEach, assert, expect, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 
 import * as ForgejoApi from "../sourceControl/ForgejoApi.ts";
 import * as ForgejoPullRequestApi from "./ForgejoPullRequestApi.ts";
 
 const mockedRequest = vi.fn<ForgejoApi.ForgejoApi["Service"]["request"]>();
 
-const layer = it.layer(
-  ForgejoPullRequestApi.layer.pipe(
+/** The api over a Forgejo whose token belongs to `configuredUser`, or to nobody named. */
+function layerWithUser(configuredUser: Option.Option<string>) {
+  return ForgejoPullRequestApi.layer.pipe(
     Layer.provide(
       Layer.mock(ForgejoApi.ForgejoApi)({
         request: mockedRequest,
+        configuredUser,
       }),
     ),
-  ),
-);
+  );
+}
+
+const layer = it.layer(layerWithUser(Option.none()));
+
+/** What `/user` answers with for a token minted without `read:user`. */
+function forbiddenUser() {
+  return Effect.fail(
+    new ForgejoApi.ForgejoResponseError({
+      operation: "request",
+      status: 403,
+      responseBodyLength: 0,
+    }),
+  );
+}
 
 /** The shape `request` answers with: a body plus whether it had to be cut short. */
 function response(body: string) {
@@ -692,6 +708,22 @@ layer("ForgejoPullRequestApi.layer", (it) => {
     }),
   );
 
+  it.effect("names T3CODE_FORGEJO_USER when /user is refused and no login is configured", () =>
+    Effect.gen(function* () {
+      mockedRequest.mockReturnValueOnce(forbiddenUser());
+      const api = yield* ForgejoPullRequestApi.ForgejoPullRequestApi;
+
+      const error = yield* Effect.flip(api.getViewer());
+
+      assert.strictEqual(error._tag, "ForgejoViewerScopeError");
+      assert.strictEqual(
+        error.detail,
+        "The Forgejo token cannot read the user profile. Grant it read access to user, or set T3CODE_FORGEJO_USER to your login.",
+      );
+      expect(callAt(0).url).toBe("/user");
+    }),
+  );
+
   it.effect("reads remarks, reviews and line comments, and threads the last by line", () =>
     Effect.gen(function* () {
       mockedRequest.mockImplementation((input) => {
@@ -1211,6 +1243,67 @@ layer("ForgejoPullRequestApi.layer", (it) => {
         url: "/repos/acme/web/issues/comments/10/reactions",
         body: '{"content":"hooray"}',
       });
+    }),
+  );
+});
+
+// A separate layer rather than `Effect.provide` inside the block above: the shared block memoizes
+// the api it built, so a second `configuredUser` would never be read there.
+const configuredUserLayer = it.layer(layerWithUser(Option.some("julius")));
+
+configuredUserLayer("ForgejoPullRequestApi.layer with T3CODE_FORGEJO_USER", (it) => {
+  it.effect("falls back to the configured login when the token cannot read /user", () =>
+    Effect.gen(function* () {
+      mockedRequest.mockReturnValueOnce(forbiddenUser());
+      const api = yield* ForgejoPullRequestApi.ForgejoPullRequestApi;
+
+      const viewer = yield* api.getViewer();
+
+      assert.strictEqual(viewer, "julius");
+      expect(callAt(0).url).toBe("/user");
+    }),
+  );
+
+  it.effect("does not fall back on a refused token, which is a 401 everywhere", () =>
+    Effect.gen(function* () {
+      mockedRequest.mockReturnValueOnce(
+        Effect.fail(
+          new ForgejoApi.ForgejoResponseError({
+            operation: "request",
+            status: 401,
+            responseBodyLength: 0,
+          }),
+        ),
+      );
+      const api = yield* ForgejoPullRequestApi.ForgejoPullRequestApi;
+
+      const error = yield* Effect.flip(api.getViewer());
+
+      expect(error).toMatchObject({ _tag: "ForgejoResponseError", status: 401 });
+    }),
+  );
+
+  it.effect("reads the viewer's own reactions as theirs through the configured login", () =>
+    Effect.gen(function* () {
+      mockedRequest.mockImplementation((input) => {
+        if (input.url === "/user") return forbiddenUser();
+        if (input.url.startsWith("/repos/acme/web/issues/7/reactions")) {
+          return Effect.succeed(
+            response(
+              JSON.stringify([
+                { content: "+1", user: julius, created_at: "2026-06-16T05:04:33+00:00" },
+              ]),
+            ),
+          );
+        }
+        return Effect.succeed(response("[]"));
+      });
+      const api = yield* ForgejoPullRequestApi.ForgejoPullRequestApi;
+
+      const conversation = yield* api.listComments({ repository: "acme/web", number: 7 });
+
+      expect(conversation.reactions).toHaveLength(1);
+      expect(conversation.reactions[0]?.viewerHasReacted).toBe(true);
     }),
   );
 });
